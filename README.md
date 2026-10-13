@@ -56,6 +56,7 @@ cp profile.example.json profile.json     # edit keywords to match your skills
 cp companies.example.json companies.json # edit the list of companies to follow
 python fetch_jobs.py          # fetch, filter, score -> jobs.json + jobs_report.md
 python track.py               # interactive picker (arrows, space, o to open, q to quit)
+python track.py --all         # same, also listing non-remote postings (r toggles)
 ```
 
 Python 3 only, standard library, no `pip install` needed.

@@ -2,6 +2,7 @@
 
 Usage:
     python track.py                              # interactive picker (see below)
+    python track.py --all                        # same, also showing non-remote postings
     python track.py applied <id|url> [note...]   # moves it to the "Applied" section
     python track.py seen <id|url>                # hides it from the report
     python track.py unmark <id|url>              # back into the "To review" list
@@ -15,7 +16,8 @@ rebuilds jobs_report.md from the last jobs.json, without fetching again.
 Interactive picker keys: up/down (or k/j) move, PgUp/PgDn jump a page,
 space cycles a posting through none -> seen -> applied -> none, s/a/u set
 seen/applied/unmarked directly, o opens the posting in the browser, h hides
-or shows already-marked postings, q quits.
+or shows already-marked postings, r shows or hides non-remote postings
+(--all starts with them shown), q quits.
 """
 import json
 import os
@@ -91,13 +93,14 @@ def fit(text, width):
     return text if len(text) <= width else text[: max(width - 1, 0)] + "…"
 
 
-def render(jobs, tracking, cursor, top, width, height, hide_marked):
+def render(jobs, tracking, cursor, top, width, height, hide_marked, show_all):
     """Build one full screen of the picker as a string."""
     marked = sum(1 for j in jobs if j["url"] in tracking)
     lines = [
         f"{BOLD}Job picker{RESET} - {len(jobs)} postings, {marked} marked"
-        + (" (hidden)" if hide_marked else ""),
-        f"{DIM}up/down move - space cycle seen/applied - s/a/u set - o open - h hide marked - q quit{RESET}",
+        + (" (hidden)" if hide_marked else "")
+        + (" - incl. non-remote" if show_all else ""),
+        f"{DIM}up/down move - space cycle seen/applied - s/a/u set - o open - h hide marked - r non-remote - q quit{RESET}",
         "",
     ]
     list_height = height - len(lines) - 5
@@ -105,7 +108,8 @@ def render(jobs, tracking, cursor, top, width, height, hide_marked):
         j = jobs[i]
         status = (tracking.get(j["url"]) or {}).get("status")
         tag = {"seen": "seen   ", "applied": "APPLIED"}.get(status, "       ")
-        row = fit(f"{tag} {j['match_score']:>2}  {j['company']} - {j['title']}  ({j['location']})", width - 1)
+        onsite = "" if is_listed(j) else " [non-remote]"
+        row = fit(f"{tag} {j['match_score']:>2}  {j['company']} - {j['title']}  ({j['location']}){onsite}", width - 1)
         color = {"seen": DIM, "applied": GREEN}.get(status, "")
         if i == cursor:
             color += REVERSE
@@ -126,12 +130,12 @@ def render(jobs, tracking, cursor, top, width, height, hide_marked):
     return "\n".join(lines)
 
 
-def interactive():
+def interactive(show_all=False):
     if os.name == "nt":
         os.system("")  # turns on ANSI escape handling in the Windows console
 
     with open("jobs.json", encoding="utf-8") as f:
-        all_jobs = [j for j in json.load(f) if is_listed(j)]
+        every_job = json.load(f)
     tracking = load_tracking()
     hide_marked = False
     cursor = top = 0
@@ -140,13 +144,14 @@ def interactive():
     sys.stdout.write("\x1b[?1049h\x1b[?25l")  # alternate screen, hide cursor
     try:
         while True:
-            jobs = [j for j in all_jobs if not (hide_marked and j["url"] in tracking)]
+            jobs = [j for j in every_job
+                    if (show_all or is_listed(j)) and not (hide_marked and j["url"] in tracking)]
             width, height = shutil.get_terminal_size()
             list_height = max(height - 8, 1)
             cursor = max(0, min(cursor, len(jobs) - 1))
             top = min(max(top, cursor - list_height + 1), cursor)
 
-            sys.stdout.write("\x1b[H\x1b[2J" + render(jobs, tracking, cursor, top, width, height, hide_marked))
+            sys.stdout.write("\x1b[H\x1b[2J" + render(jobs, tracking, cursor, top, width, height, hide_marked, show_all))
             sys.stdout.flush()
 
             key = read_key()
@@ -166,6 +171,8 @@ def interactive():
                 cursor = len(jobs) - 1
             elif key == "h":
                 hide_marked = not hide_marked
+            elif key == "r":
+                show_all = not show_all
             elif key == "o" and jobs:
                 webbrowser.open(jobs[cursor]["url"])
             elif key in (" ", "s", "a", "u") and jobs:
@@ -194,8 +201,8 @@ def interactive():
 
 
 def main():
-    if len(sys.argv) == 1:
-        return interactive()
+    if sys.argv[1:] in ([], ["--all"]):
+        return interactive(show_all=bool(sys.argv[1:]))
     if sys.argv[1] not in ("applied", "seen", "unmark", "list"):
         sys.exit(__doc__)
 
