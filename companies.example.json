@@ -1,0 +1,67 @@
+[
+  {
+    "name": "Docker",
+    "slug": "docker",
+    "ats": "ashby",
+    "dev_departments": [
+      "engineering",
+      "security"
+    ],
+    "title_include": [
+      "engineer",
+      "developer",
+      "architect"
+    ],
+    "title_exclude": [
+      "solutions engineer",
+      "solutions architect",
+      "sales engineer",
+      "implementation engineer",
+      "customer experience engineer",
+      "field cto"
+    ]
+  },
+  {
+    "name": "Ashby",
+    "slug": "ashby",
+    "ats": "ashby"
+  },
+  {
+    "name": "GitLab",
+    "slug": "gitlab",
+    "ats": "greenhouse",
+    "skip_department_filter": true,
+    "title_include": [
+      "engineer",
+      "developer",
+      "architect"
+    ],
+    "title_exclude": [
+      "solutions engineer",
+      "solutions architect",
+      "sales engineer",
+      "support engineer",
+      "field",
+      "customer"
+    ]
+  },
+  {
+    "name": "Anthropic",
+    "slug": "anthropic",
+    "ats": "greenhouse",
+    "skip_department_filter": true,
+    "title_include": [
+      "engineer",
+      "developer",
+      "architect"
+    ],
+    "title_exclude": [
+      "solutions engineer",
+      "solutions architect",
+      "sales engineer",
+      "support engineer",
+      "field",
+      "customer"
+    ]
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "https://jobs.example.com/acme/1234": {
+    "status": "applied",
+    "date": "2026-01-15",
+    "company": "Acme",
+    "title": "Senior Backend Engineer",
+    "note": "sent via referral"
+  }
+}

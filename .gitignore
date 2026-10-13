@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+node_modules/
+
+# personal data: copy the *.example.json files to create your own
+profile.json
+companies.json
+applications.json
+jobs.json
+jobs_report.md
