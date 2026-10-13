@@ -148,22 +148,48 @@ def is_listed(job):
 LOCATION_EXCLUDE_TERMS = ["india", "canada", "in-office", "seattle", "americas", "hybrid"]
 
 
-def is_location_allowed(location):
+# Places a posting may be open to. Matched as whole words, case-insensitive,
+# against each location listed on a posting. Override with "locations" in
+# profile.json (e.g. ["france", "paris"] for France only).
+DEFAULT_LOCATIONS = [
+    "europe", "european union", "eu", "emea",
+    "france", "paris", "lyon", "toulouse", "nantes", "bordeaux", "lille",
+    "united kingdom", "uk", "england", "london", "ireland", "ie", "dublin",
+    "germany", "berlin", "munich", "netherlands", "amsterdam", "belgium", "brussels",
+    "spain", "madrid", "barcelona", "portugal", "lisbon", "italy", "milan",
+    "switzerland", "ch", "zurich", "luxembourg", "austria", "vienna",
+    "poland", "sweden", "stockholm", "denmark", "copenhagen", "norway",
+    "finland", "helsinki", "czech", "romania", "estonia", "lithuania",
+]
+# A location that says nothing but this is open to anyone.
+OPEN_LOCATIONS = {"remote", "anywhere", "worldwide", "global", "distributed", "remote (anywhere)"}
+
+
+def is_location_allowed(location, allowed=None, open_remote=True):
+    """Whether a posting is open to a candidate in one of the allowed places.
+
+    A posting often lists several locations ("Remote, France; Remote, US" or
+    "Paris | New York City, NY"). It passes if at least one of them is
+    allowed. Postings with no location at all are kept: nothing says no.
+    """
     loc = (location or "").lower()
     if any(term in loc for term in LOCATION_EXCLUDE_TERMS):
         return False
+    parts = [p.strip() for p in re.split(r"[;|]", loc) if p.strip()]
+    if not parts:
+        return True
 
-    # A single-country listing of "United States" (no other region alongside
-    # it) means the role is US-only -- not open to a France-based candidate.
-    # Multi-location postings ("Remote, US; Remote, UK") are fine.
-    parts = [p.strip() for p in loc.split(";") if p.strip()]
-    if len(parts) == 1 and ("united states" in parts[0] or parts[0] in ("us", "usa")):
-        return False
+    terms = [t.lower() for t in (allowed if allowed is not None else DEFAULT_LOCATIONS)]
+    pattern = re.compile(r"(?<!\w)(" + "|".join(re.escape(t) for t in terms) + r")(?!\w)") if terms else None
+    for part in parts:
+        if open_remote and part in OPEN_LOCATIONS:
+            return True
+        if pattern and pattern.search(part):
+            return True
+    return False
 
-    return True
 
-
-def is_dev_job(job, company):
+def is_dev_job(job, company, allowed_locations=None, open_remote=True):
     title = job["title"].lower()
     title_include = company.get("title_include", DEFAULT_TITLE_INCLUDE)
     title_exclude = company.get("title_exclude", DEFAULT_TITLE_EXCLUDE)
@@ -172,7 +198,7 @@ def is_dev_job(job, company):
         return False
     if any(term in (job.get("contract") or "").lower() for term in ("stage", "apprentissage", "alternance")):
         return False
-    if not is_location_allowed(job.get("location")):
+    if not is_location_allowed(job.get("location"), allowed_locations, open_remote):
         return False
     # Some companies post one copy of each role per country ("Spain (Remote)",
     # "Australia (Remote)"); location_include keeps only the copies open to us.
@@ -290,6 +316,8 @@ def main():
         with open("profile.json", encoding="utf-8") as f:
             profile = json.load(f)
         keywords = [k.lower() for k in profile["keywords"]]
+        allowed_locations = profile.get("locations")
+        open_remote = profile.get("open_remote", True)
         summary = (profile.get("summary") or "").strip()
     except FileNotFoundError:
         raise SystemExit(
@@ -307,7 +335,7 @@ def main():
             print(f"Skipping {company['name']}: unsupported ATS '{company['ats']}'")
             continue
         jobs = fetcher(company)
-        dev_jobs = [j for j in jobs if is_dev_job(j, company)]
+        dev_jobs = [j for j in jobs if is_dev_job(j, company, allowed_locations, open_remote)]
         if company.get("include_onsite"):
             for j in dev_jobs:
                 j["include_onsite"] = True

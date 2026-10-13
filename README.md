@@ -16,7 +16,8 @@ companies.json ──► fetch_jobs.py ──► jobs.json + jobs_report.md
 ## Features
 
 - **Multi-board fetching**: Ashby, Greenhouse and Lever. Public APIs only.
-- **Smart filtering**: dev-only departments and titles, location filters,
+- **Smart filtering**: dev-only departments and titles, location filter
+  (Europe, EMEA, France and "remote anywhere" by default; configurable),
   remote-first, with optional on-site/hybrid section for companies that
   need it.
 - **Scoring against your profile**: keywords in `profile.json` decide the
@@ -68,6 +69,27 @@ python track.py list                                 # everything marked so far
 
 Each posting has a short id (e.g. `7624e3`) derived from its URL. Marking
 rebuilds the report immediately, without a new fetch.
+
+## Locations
+
+By default a posting is kept when one of its locations is in Europe (EU, UK,
+Switzerland, Norway), EMEA or France, or when it is plainly open ("Remote",
+"Anywhere", "Worldwide"). Postings restricted to the US, Asia and so on are
+dropped. "Remote, US" and "Remote-Friendly | San Francisco" do not pass.
+
+Change it in `profile.json`:
+
+```json
+{
+  "locations": ["france", "paris", "europe", "emea"],
+  "open_remote": false
+}
+```
+
+- `locations`: place names matched as whole words, case-insensitive. This
+  replaces the default list (see `DEFAULT_LOCATIONS` in `fetch_jobs.py`).
+- `open_remote`: set to `false` to drop postings that only say "Remote" or
+  "Anywhere" with no region. Default `true`.
 
 ## LLM scoring (optional)
 
