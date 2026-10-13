@@ -21,6 +21,8 @@ companies.json ──► fetch_jobs.py ──► jobs.json + jobs_report.md
   need it.
 - **Scoring against your profile**: keywords in `profile.json` decide the
   ranking, so the best matches come first.
+- **Optional LLM scoring**: Claude rates how well each of the best postings
+  fits your profile and tells you why. Off by default.
 - **Application tracking**: mark postings `applied` or `seen` from an
   interactive picker. Seen postings leave the report; applied ones move to
   their own section and get flagged when the posting disappears.
@@ -66,6 +68,30 @@ python track.py list                                 # everything marked so far
 
 Each posting has a short id (e.g. `7624e3`) derived from its URL. Marking
 rebuilds the report immediately, without a new fetch.
+
+## LLM scoring (optional)
+
+Keyword counting is a rough first pass. With `--llm`, the best postings are
+also rated by Claude against a short description of you:
+
+```bash
+export ANTHROPIC_API_KEY=...        # your own key
+python fetch_jobs.py --llm          # rates the top 50 by keyword score
+python fetch_jobs.py --llm --llm-top 20
+```
+
+- Add a `summary` field to `profile.json` (a few lines: your background, what
+  you want, what you refuse). See `profile.example.json`.
+- Each posting gets a fit from 0 to 10, a one-sentence reason and up to three
+  red flags. The report sorts by fit first.
+- Ratings are cached in `llm_cache.json`, keyed by posting and profile, so a
+  posting is rated once. Without `--llm`, cached ratings still show up.
+- Postings are treated as untrusted text: the model answers through a
+  structured tool call, the output is validated, and any failure falls back to
+  the keyword score. The report is always produced.
+- Model: `claude-haiku-5-5` by default, override with `JOB_HUNTER_MODEL`.
+- Postings and your summary are sent to the Anthropic API. Nothing is sent
+  without `--llm`.
 
 ## Adding a company
 

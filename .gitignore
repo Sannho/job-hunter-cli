@@ -7,4 +7,5 @@ profile.json
 companies.json
 applications.json
 jobs.json
+llm_cache.json
 jobs_report.md

@@ -13,6 +13,7 @@ it in FETCHERS below.
 import hashlib
 import json
 import re
+import argparse
 import urllib.request
 from datetime import datetime, timezone
 
@@ -196,6 +197,8 @@ def score_job(job, keywords):
     job["match_score"] = len(hits)
     job["matched_keywords"] = hits
     job["id"] = job_id(job["url"])
+    # Kept in memory for the optional LLM pass, never written to jobs.json.
+    job["_text"] = job["text"][:6000]
     del job["text"]
     return job
 
@@ -217,7 +220,7 @@ def write_report(jobs, tracking, path="jobs_report.md", limit=50):
         "# Job matches",
         "",
         f"Generated {datetime.now(timezone.utc).isoformat()}. Remote postings "
-        f"sorted by match score, best first (top {limit}), then on-site/hybrid "
+        f"sorted by LLM fit when available, then keyword score, best first (top {limit}), then on-site/hybrid "
         f"postings from companies flagged include_onsite. Postings marked "
         f"with `track.py` are left out of this list ({seen_count} seen, "
         f"{len(applied)} applied).",
@@ -228,6 +231,10 @@ def write_report(jobs, tracking, path="jobs_report.md", limit=50):
     def add_entries(entries):
         for rank, j in enumerate(entries, start=1):
             lines.append(f"### {rank}. [{j['company']} - {j['title']}]({j['url']}) `{j['id']}`")
+            if j.get("llm_fit") is not None:
+                lines.append(f"- **Fit:** {j['llm_fit']}/10 - {j['llm_reason']}")
+                if j.get("llm_flags"):
+                    lines.append(f"- **Flags:** {'; '.join(j['llm_flags'])}")
             lines.append(f"- **Score:** {j['match_score']}")
             lines.append(f"- **Location:** {j['location']}")
             lines.append(f"- **Added:** {j['published']}")
@@ -238,7 +245,7 @@ def write_report(jobs, tracking, path="jobs_report.md", limit=50):
             lines.append("")
 
     add_entries(to_review)
-    lines += ["## On-site / hybrid (banks)", ""]
+    lines += ["## On-site / hybrid", ""]
     add_entries(onsite)
 
     lines += ["## Applied", ""]
@@ -264,6 +271,13 @@ def load_previous_jobs(path="jobs.json"):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Fetch, filter and score job postings.")
+    parser.add_argument("--llm", action="store_true",
+                        help="rate the best postings with Claude (needs ANTHROPIC_API_KEY)")
+    parser.add_argument("--llm-top", type=int, default=50, metavar="N",
+                        help="how many postings to rate with --llm (default: 50)")
+    args = parser.parse_args()
+
     try:
         with open("companies.json", encoding="utf-8") as f:
             companies = json.load(f)
@@ -274,7 +288,9 @@ def main():
         )
     try:
         with open("profile.json", encoding="utf-8") as f:
-            keywords = [k.lower() for k in json.load(f)["keywords"]]
+            profile = json.load(f)
+        keywords = [k.lower() for k in profile["keywords"]]
+        summary = (profile.get("summary") or "").strip()
     except FileNotFoundError:
         raise SystemExit(
             "profile.json not found. Copy profile.example.json to profile.json "
@@ -300,12 +316,22 @@ def main():
 
     all_jobs.sort(key=lambda j: (j["match_score"], j["published"]), reverse=True)
 
+    if args.llm and not summary:
+        raise SystemExit('--llm needs a "summary" field in profile.json (a few lines about you).')
+    if summary:
+        tracked = load_tracking()
+        candidates = [j for j in all_jobs if is_listed(j) and j["url"] not in tracked]
+        from llm_score import apply_llm_scores
+        apply_llm_scores(candidates, all_jobs, summary, top=args.llm_top, call_api=args.llm)
+        all_jobs.sort(key=lambda j: (j.get("llm_fit", -1), j["match_score"], j["published"]), reverse=True)
+
     current_urls = {j["url"] for j in all_jobs}
     new_jobs = [j for j in all_jobs if j["url"] not in previous]
     removed_jobs = [j for url, j in previous.items() if url not in current_urls]
 
     with open("jobs.json", "w", encoding="utf-8") as f:
-        json.dump(all_jobs, f, ensure_ascii=False, indent=2)
+        json.dump([{k: v for k, v in j.items() if k != "_text"} for j in all_jobs],
+                  f, ensure_ascii=False, indent=2)
 
     write_report(all_jobs, tracking)
 
