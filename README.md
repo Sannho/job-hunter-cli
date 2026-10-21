@@ -15,13 +15,17 @@ companies.json ──► fetch_jobs.py ──► jobs.json + jobs_report.md
 
 ## Features
 
-- **Multi-board fetching**: Ashby, Greenhouse and Lever. Public APIs only.
+- **Multi-board fetching**: Ashby, Greenhouse, Lever, Workable,
+  SmartRecruiters, Recruitee and Personio. Public APIs only, fetched in
+  parallel. A board that fails never stops the others.
 - **Smart filtering**: dev-only departments and titles, location filter
   (Europe, EMEA, France and "remote anywhere" by default; configurable),
   remote-first, with optional on-site/hybrid section for companies that
   need it.
 - **Scoring against your profile**: keywords in `profile.json` decide the
-  ranking, so the best matches come first.
+  ranking. Title matches weigh more, and you can boost or avoid title words.
+- **Report built to be skimmed**: summary table per company, a "New" section
+  for postings first seen in the last 3 days, remote / on-site tag on each.
 - **Optional LLM scoring**: Claude rates how well each of the best postings
   fits your profile and tells you why. Off by default.
 - **Application tracking**: mark postings `applied` or `seen` from an
@@ -70,6 +74,20 @@ python track.py list                                 # everything marked so far
 
 Each posting has a short id (e.g. `7624e3`) derived from its URL. Marking
 rebuilds the report immediately, without a new fetch.
+
+## Tuning the score
+
+In `profile.json`, besides `keywords`:
+
+```json
+{
+  "boost_titles": ["senior", "staff", "backend"],
+  "avoid_titles": ["intern", "sales", "support"]
+}
+```
+
+A keyword found in the posting counts 1, found in the title 3. Each
+`boost_titles` word in the title adds 3, each `avoid_titles` word takes away 5.
 
 ## Locations
 
@@ -131,15 +149,28 @@ Add an entry to your `companies.json` (start from [`companies.example.json`](com
 }
 ```
 
-To find the slug, open the careers page and look for a link to
-`jobs.ashbyhq.com/<slug>`, `boards.greenhouse.io/<slug>` or
-`jobs.lever.co/<slug>`.
+To find the slug, open the careers page and look at the job board link:
+
+| `ats` | Link looks like | Slug |
+|---|---|---|
+| `ashby` | `jobs.ashbyhq.com/<slug>` | `<slug>` |
+| `greenhouse` | `boards.greenhouse.io/<slug>` or `job-boards.greenhouse.io/<slug>` | `<slug>` |
+| `lever` | `jobs.lever.co/<slug>` | `<slug>` |
+| `workable` | `apply.workable.com/<slug>` | `<slug>` |
+| `smartrecruiters` | `jobs.smartrecruiters.com/<slug>` | `<slug>` (case matters) |
+| `recruitee` | `<slug>.recruitee.com` | `<slug>` |
+| `personio` | `<slug>.jobs.personio.de` | `<slug>` |
+
+Workable and SmartRecruiters list titles only, so the tool fetches the
+description of postings whose title passes `title_include` and
+`title_exclude`. Set those two for large boards to keep the run fast.
 
 Optional keys: `skip_department_filter`, `location_include`,
 `include_onsite`. Defaults are in `fetch_jobs.py`.
 
 To support another job board, write a `fetch_<ats>(company)` function that
-returns the same shape as the others and register it in `FETCHERS`.
+returns the same shape as the others (see `more_ats.py`) and register it in
+`FETCHERS`.
 
 ## Limitations
 

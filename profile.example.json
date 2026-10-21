@@ -24,5 +24,17 @@
     "tech lead",
     "remote",
     "async"
+  ],
+  "boost_titles": [
+    "senior",
+    "staff",
+    "backend",
+    "platform"
+  ],
+  "avoid_titles": [
+    "intern",
+    "sales",
+    "support",
+    "recruiter"
   ]
 }

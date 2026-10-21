@@ -1,0 +1,187 @@
+"""Fetchers for Workable, SmartRecruiters, Recruitee and Personio.
+
+Same contract as the fetchers in fetch_jobs.py: take a company entry from
+companies.json, return a list of job dicts. All four use public endpoints.
+
+Workable and SmartRecruiters only list titles and locations; the description
+needs one extra request per posting. To keep that cheap, postings whose title
+is already rejected by the company's title_include / title_exclude are dropped
+before any description is fetched.
+"""
+import json
+import re
+import urllib.request
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
+
+TAG_RE = re.compile(r"<[^>]+>")
+DETAIL_WORKERS = 8
+DEFAULT_TITLE_INCLUDE = ["engineer", "developer", "architect"]
+
+
+def _request(url, data=None, headers=None):
+    body = json.dumps(data).encode("utf-8") if data is not None else None
+    req = urllib.request.Request(url, data=body, headers={
+        "User-Agent": "Mozilla/5.0",
+        **({"Content-Type": "application/json"} if data is not None else {}),
+        **(headers or {}),
+    })
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read()
+
+
+def _json(url, data=None):
+    return json.loads(_request(url, data))
+
+
+def _strip(html):
+    return TAG_RE.sub(" ", html or "")
+
+
+def _title_plausible(title, company):
+    """Cheap title check done before paying for a description request."""
+    t = title.lower()
+    include = company.get("title_include", DEFAULT_TITLE_INCLUDE)
+    exclude = company.get("title_exclude", [])
+    return any(x in t for x in include) and not any(x in t for x in exclude)
+
+
+def _details(items, fetch_one):
+    """Run fetch_one over items in parallel, keeping order."""
+    with ThreadPoolExecutor(max_workers=DETAIL_WORKERS) as pool:
+        return list(pool.map(fetch_one, items))
+
+
+def fetch_workable(company):
+    slug = company["slug"]
+    base = f"https://apply.workable.com/api/v3/accounts/{slug}/jobs"
+    listing, token = [], None
+    while True:
+        payload = {"query": "", "location": [], "department": [], "worktype": [], "remote": []}
+        if token:
+            payload["token"] = token
+        data = _json(base, payload)
+        listing += data.get("results", [])
+        token = data.get("nextPage")
+        if not token:
+            break
+
+    listing = [j for j in listing if _title_plausible(j["title"], company)]
+
+    def one(j):
+        try:
+            detail = _json(f"https://apply.workable.com/api/v2/accounts/{slug}/jobs/{j['shortcode']}")
+        except Exception:
+            detail = {}
+        loc = j.get("location") or {}
+        location = ", ".join(x for x in (loc.get("city"), loc.get("country")) if x)
+        return {
+            "company": company["name"],
+            "title": j["title"].strip(),
+            "department": (j.get("department") or [""])[0],
+            "team": "",
+            "location": location,
+            "remote": bool(j.get("remote")) or j.get("workplace") == "remote",
+            "published": (j.get("published") or "")[:10],
+            "compensation": None,
+            "text": f"{j['title']} " + _strip(
+                f"{detail.get('description', '')} {detail.get('requirements', '')}"),
+            "url": f"https://apply.workable.com/{slug}/j/{j['shortcode']}/",
+        }
+
+    return _details(listing, one)
+
+
+def fetch_smartrecruiters(company):
+    slug = company["slug"]
+    base = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings"
+    listing, offset = [], 0
+    while True:
+        data = _json(f"{base}?limit=100&offset={offset}")
+        listing += data.get("content", [])
+        offset += 100
+        if offset >= data.get("totalFound", 0) or not data.get("content"):
+            break
+
+    listing = [j for j in listing if _title_plausible(j["name"], company)]
+
+    def one(j):
+        try:
+            detail = _json(f"{base}/{j['id']}")
+        except Exception:
+            detail = {}
+        sections = (detail.get("jobAd") or {}).get("sections") or {}
+        text = " ".join(_strip((s or {}).get("text", "")) for s in sections.values())
+        loc = j.get("location") or {}
+        return {
+            "company": company["name"],
+            "title": j["name"].strip(),
+            "department": (j.get("department") or {}).get("label", ""),
+            "team": (j.get("function") or {}).get("label", ""),
+            "location": loc.get("fullLocation") or loc.get("city", ""),
+            "remote": bool(loc.get("remote")),
+            "published": (j.get("releasedDate") or "")[:10],
+            "compensation": None,
+            "text": f"{j['name']} {text}",
+            "url": detail.get("postingUrl") or f"https://jobs.smartrecruiters.com/{slug}/{j['id']}",
+        }
+
+    return _details(listing, one)
+
+
+def fetch_recruitee(company):
+    slug = company["slug"]
+    data = _json(f"https://{slug}.recruitee.com/api/offers/")
+    jobs = []
+    for j in data.get("offers", []):
+        salary = j.get("salary") or {}
+        compensation = None
+        if salary.get("min") or salary.get("max"):
+            compensation = f"{salary.get('min') or '?'} - {salary.get('max') or '?'} {salary.get('currency') or ''}".strip()
+        jobs.append({
+            "company": company["name"],
+            "title": j["title"].strip(),
+            "department": j.get("department") or "",
+            "team": "",
+            "location": j.get("location") or ", ".join(x for x in (j.get("city"), j.get("country")) if x),
+            "remote": bool(j.get("remote")),
+            "published": (j.get("published_at") or j.get("created_at") or "")[:10],
+            "compensation": compensation,
+            "text": f"{j['title']} " + _strip(f"{j.get('description', '')} {j.get('requirements', '')}"),
+            "url": j.get("careers_url") or f"https://{slug}.recruitee.com/o/{j.get('slug', '')}",
+        })
+    return jobs
+
+
+def fetch_personio(company):
+    slug = company["slug"]
+    root = ET.fromstring(_request(f"https://{slug}.jobs.personio.de/xml?language=en"))
+    jobs = []
+    for p in root.iter("position"):
+        title = (p.findtext("name") or "").strip()
+        offices = [p.findtext("office") or ""] + [o.text or "" for o in p.iter("office") if o is not p.find("office")]
+        location = "; ".join(dict.fromkeys(o for o in offices if o))
+        descriptions = " ".join(
+            _strip((d.findtext("value") or "")) for d in p.iter("jobDescription"))
+        text = f"{title} {descriptions}"
+        jobs.append({
+            "company": company["name"],
+            "title": title,
+            "department": p.findtext("department") or "",
+            "team": p.findtext("recruitingCategory") or "",
+            "location": location,
+            "remote": bool(re.search(r"\bremote\b", f"{location} {title}".lower())),
+            "published": (p.findtext("createdAt") or "")[:10],
+            "compensation": None,
+            "text": text,
+            "url": f"https://{slug}.jobs.personio.de/job/{p.findtext('id')}",
+        })
+    return jobs
+
+
+FETCHERS = {
+    "workable": fetch_workable,
+    "smartrecruiters": fetch_smartrecruiters,
+    "recruitee": fetch_recruitee,
+    "personio": fetch_personio,
+}

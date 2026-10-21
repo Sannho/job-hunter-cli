@@ -63,5 +63,11 @@
       "field",
       "customer"
     ]
+  },
+  {
+    "name": "Hugging Face",
+    "slug": "huggingface",
+    "ats": "workable",
+    "skip_department_filter": true
   }
 ]

@@ -14,8 +14,12 @@ import hashlib
 import json
 import re
 import argparse
+import time
 import urllib.request
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta, timezone
+
+from more_ats import FETCHERS as MORE_FETCHERS
 
 TRACKING_PATH = "applications.json"
 
@@ -131,6 +135,7 @@ FETCHERS = {
     "ashby": fetch_ashby,
     "greenhouse": fetch_greenhouse,
     "lever": fetch_lever,
+    **MORE_FETCHERS,
 }
 
 
@@ -217,10 +222,16 @@ def is_dev_job(job, company, allowed_locations=None, open_remote=True):
     return any(kw in title for kw in title_include)
 
 
-def score_job(job, keywords):
+def score_job(job, keywords, boost_titles=(), avoid_titles=()):
+    """Keyword score: each hit in the posting counts 1, each hit in the title
+    counts 3 in total, boost_titles add 3 and avoid_titles take 5 away."""
     text = job["text"].lower()
+    title = job["title"].lower()
     hits = [kw for kw in keywords if kw in text]
-    job["match_score"] = len(hits)
+    title_hits = [kw for kw in keywords if kw in title]
+    boosts = [t for t in boost_titles if t in title]
+    avoids = [t for t in avoid_titles if t in title]
+    job["match_score"] = len(hits) + 2 * len(title_hits) + 3 * len(boosts) - 5 * len(avoids)
     job["matched_keywords"] = hits
     job["id"] = job_id(job["url"])
     # Kept in memory for the optional LLM pass, never written to jobs.json.
@@ -229,8 +240,22 @@ def score_job(job, keywords):
     return job
 
 
+NEW_DAYS = 3
+
+
+def is_new(job):
+    """Seen for the first time in the last NEW_DAYS days."""
+    try:
+        first = date.fromisoformat((job.get("first_seen") or "")[:10])
+    except ValueError:
+        return False
+    return date.today() - first <= timedelta(days=NEW_DAYS)
+
+
 def write_report(jobs, tracking, path="jobs_report.md", limit=50):
-    to_review = [j for j in jobs if j.get("remote") and j["url"] not in tracking][:limit]
+    remote = [j for j in jobs if j.get("remote") and j["url"] not in tracking][:limit]
+    fresh = [j for j in remote if is_new(j)]
+    to_review = [j for j in remote if not is_new(j)]
     # On-site/hybrid postings from include_onsite companies get their own
     # section: their French descriptions score low against English keywords,
     # so they would never make the remote top 50.
@@ -242,27 +267,40 @@ def write_report(jobs, tracking, path="jobs_report.md", limit=50):
     applied.sort(key=lambda item: item[1]["date"], reverse=True)
     seen_count = sum(1 for t in tracking.values() if t["status"] == "seen")
 
+    shown = remote + onsite
+    by_company = {}
+    for j in shown:
+        row = by_company.setdefault(j["company"], [0, 0])
+        row[0] += 1
+        row[1] += is_new(j)
+
     lines = [
         "# Job matches",
         "",
-        f"Generated {datetime.now(timezone.utc).isoformat()}. Remote postings "
-        f"sorted by LLM fit when available, then keyword score, best first (top {limit}), then on-site/hybrid "
-        f"postings from companies flagged include_onsite. Postings marked "
-        f"with `track.py` are left out of this list ({seen_count} seen, "
+        f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}. "
+        f"{len(shown)} postings to look at, {sum(r[1] for r in by_company.values())} new "
+        f"in the last {NEW_DAYS} days. Sorted by LLM fit when available, then keyword "
+        f"score. Postings marked with `track.py` are left out ({seen_count} seen, "
         f"{len(applied)} applied).",
         "",
-        "## To review",
-        "",
     ]
+    if by_company:
+        lines += ["| Company | Postings | New |", "|---|---:|---:|"]
+        for name, (total, new) in sorted(by_company.items(), key=lambda kv: (-kv[1][1], -kv[1][0])):
+            lines.append(f"| {name} | {total} | {new or ''} |")
+        lines.append("")
+
     def add_entries(entries):
         for rank, j in enumerate(entries, start=1):
-            lines.append(f"### {rank}. [{j['company']} - {j['title']}]({j['url']}) `{j['id']}`")
+            badge = " **NEW**" if is_new(j) else ""
+            lines.append(f"### {rank}. [{j['company']} - {j['title']}]({j['url']}) `{j['id']}`{badge}")
             if j.get("llm_fit") is not None:
                 lines.append(f"- **Fit:** {j['llm_fit']}/10 - {j['llm_reason']}")
                 if j.get("llm_flags"):
                     lines.append(f"- **Flags:** {'; '.join(j['llm_flags'])}")
             lines.append(f"- **Score:** {j['match_score']}")
-            lines.append(f"- **Location:** {j['location']}")
+            mode = "remote" if j.get("remote") else "on-site / hybrid"
+            lines.append(f"- **Location:** {j['location']} ({mode})")
             lines.append(f"- **Added:** {j['published']}")
             if j.get("compensation"):
                 lines.append(f"- **Compensation:** {j['compensation']}")
@@ -270,6 +308,10 @@ def write_report(jobs, tracking, path="jobs_report.md", limit=50):
                 lines.append(f"- **Matched:** {', '.join(j['matched_keywords'])}")
             lines.append("")
 
+    if fresh:
+        lines += [f"## New (last {NEW_DAYS} days)", ""]
+        add_entries(fresh)
+    lines += ["## To review", ""]
     add_entries(to_review)
     lines += ["## On-site / hybrid", ""]
     add_entries(onsite)
@@ -319,6 +361,8 @@ def main():
         allowed_locations = profile.get("locations")
         open_remote = profile.get("open_remote", True)
         summary = (profile.get("summary") or "").strip()
+        boost_titles = [t.lower() for t in profile.get("boost_titles", [])]
+        avoid_titles = [t.lower() for t in profile.get("avoid_titles", [])]
     except FileNotFoundError:
         raise SystemExit(
             "profile.json not found. Copy profile.example.json to profile.json "
@@ -328,19 +372,47 @@ def main():
     previous = load_previous_jobs()
     tracking = load_tracking()
 
-    all_jobs = []
-    for company in companies:
+    def fetch_company(company):
         fetcher = FETCHERS.get(company["ats"])
         if not fetcher:
-            print(f"Skipping {company['name']}: unsupported ATS '{company['ats']}'")
+            return company, None, f"unsupported ATS '{company['ats']}'", 0.0
+        start = time.monotonic()
+        try:
+            return company, fetcher(company), None, time.monotonic() - start
+        except Exception as e:  # one broken board must not sink the whole run
+            return company, None, f"{type(e).__name__}: {e}", time.monotonic() - start
+
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(fetch_company, companies))
+
+    all_jobs, failed = [], []
+    for company, jobs, error, secs in results:
+        if error:
+            failed.append(company["name"])
+            print(f"{company['name']}: FAILED ({error})")
             continue
-        jobs = fetcher(company)
         dev_jobs = [j for j in jobs if is_dev_job(j, company, allowed_locations, open_remote)]
         if company.get("include_onsite"):
             for j in dev_jobs:
                 j["include_onsite"] = True
-        print(f"{company['name']}: {len(jobs)} openings, {len(dev_jobs)} dev-related")
-        all_jobs.extend(score_job(j, keywords) for j in dev_jobs)
+        print(f"{company['name']}: {len(jobs)} openings, {len(dev_jobs)} dev-related ({secs:.1f}s)")
+        all_jobs.extend(score_job(j, keywords, boost_titles, avoid_titles) for j in dev_jobs)
+
+    # A board that failed this run keeps its previous postings, so they are
+    # neither reported as removed nor lost from jobs.json.
+    for url, j in previous.items():
+        if j["company"] in failed:
+            all_jobs.append(j)
+
+    today = date.today().isoformat()
+    for j in all_jobs:
+        prior = previous.get(j["url"])
+        if prior:
+            j["first_seen"] = prior.get("first_seen") or prior.get("published") or today
+        else:
+            # First ever run: nothing is "new", fall back to the posting date.
+            j["first_seen"] = today if previous else (j.get("published") or today)
 
     all_jobs.sort(key=lambda j: (j["match_score"], j["published"]), reverse=True)
 
@@ -382,8 +454,11 @@ def main():
     else:
         print("\nNo previous jobs.json found - nothing to compare against yet.")
 
-    print(f"\nSaved: jobs.json, jobs_report.md")
-    print(f"Fetched at {datetime.now(timezone.utc).isoformat()}")
+    fresh_count = sum(1 for j in all_jobs if is_new(j) and is_listed(j) and j["url"] not in tracking)
+    print(f"\n{fresh_count} new in the last {NEW_DAYS} days.")
+    if failed:
+        print(f"Failed boards (previous postings kept): {', '.join(failed)}")
+    print(f"Saved: jobs.json, jobs_report.md ({time.monotonic() - started:.1f}s)")
 
 
 if __name__ == "__main__":
