@@ -447,6 +447,10 @@ def main():
         if error:
             failed.append(company["name"])
             continue
+        for j in jobs:
+            # A board that says only "Remote" and gives no workplace type means remote.
+            if not j.get("remote") and not j.get("workplace")                     and (j.get("location") or "").strip().lower() in OPEN_LOCATIONS:
+                j["remote"] = True
         dev_jobs = [j for j in jobs if is_dev_job(j, company, allowed_locations, open_remote)]
         if company.get("include_onsite"):
             for j in dev_jobs:
