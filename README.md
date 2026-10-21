@@ -220,7 +220,8 @@ description of postings whose title passes `title_include` and
 `title_exclude`. Set those two for large boards to keep the run fast.
 
 Optional keys: `skip_department_filter`, `location_include`,
-`include_onsite`. Defaults are in `fetch_jobs.py`.
+`include_onsite`, `accept_locations` (extra places accepted for this company only,
+for boards that use a country as a hiring-region label). Defaults are in `fetch_jobs.py`.
 
 To support another job board, write a `fetch_<ats>(company)` function that
 returns the same shape as the others (see `more_ats.py`) and register it in

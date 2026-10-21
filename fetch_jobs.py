@@ -241,7 +241,12 @@ def is_dev_job(job, company, allowed_locations=None, open_remote=True):
         return False
     if any(term in (job.get("contract") or "").lower() for term in ("stage", "apprentissage", "alternance")):
         return False
-    if not is_location_allowed(job.get("location"), allowed_locations, open_remote):
+    # accept_locations: extra places for this company only, on top of the profile's.
+    allowed = allowed_locations
+    if company.get("accept_locations"):
+        base = allowed_locations if allowed_locations is not None else DEFAULT_LOCATIONS
+        allowed = list(base) + list(company["accept_locations"])
+    if not is_location_allowed(job.get("location"), allowed, open_remote):
         return False
     # Some companies post one copy of each role per country ("Spain (Remote)",
     # "Australia (Remote)"); location_include keeps only the copies open to us.
