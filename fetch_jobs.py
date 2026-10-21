@@ -277,14 +277,10 @@ def is_new(job):
     return date.today() - first <= timedelta(days=NEW_DAYS)
 
 
-def write_report(jobs, tracking, path="jobs_report.md", limit=50):
-    remote = [j for j in jobs if j.get("remote") and j["url"] not in tracking][:limit]
-    fresh = [j for j in remote if is_new(j)]
-    to_review = [j for j in remote if not is_new(j)]
-    # On-site/hybrid postings from include_onsite companies get their own
-    # section: their French descriptions score low against English keywords,
-    # so they would never make the remote top 50.
-    onsite = [j for j in jobs if not j.get("remote") and is_listed(j) and j["url"] not in tracking]
+def write_report(jobs, tracking, path="jobs_report.md", limit=60):
+    # One ranking: remote postings and the on-site/hybrid ones of include_onsite
+    # companies, best first. `jobs` is already sorted.
+    shown = [j for j in jobs if is_listed(j) and j["url"] not in tracking][:limit]
     listed_urls = {j["url"] for j in jobs}
     applied = [
         (url, t) for url, t in tracking.items() if t["status"] == "applied"
@@ -292,7 +288,6 @@ def write_report(jobs, tracking, path="jobs_report.md", limit=50):
     applied.sort(key=lambda item: item[1]["date"], reverse=True)
     seen_count = sum(1 for t in tracking.values() if t["status"] == "seen")
 
-    shown = remote + onsite
     by_company = {}
     for j in shown:
         row = by_company.setdefault(j["company"], [0, 0])
@@ -333,13 +328,8 @@ def write_report(jobs, tracking, path="jobs_report.md", limit=50):
                 lines.append(f"- **Matched:** {', '.join(j['matched_keywords'])}")
             lines.append("")
 
-    if fresh:
-        lines += [f"## New (last {NEW_DAYS} days)", ""]
-        add_entries(fresh)
     lines += ["## To review", ""]
-    add_entries(to_review)
-    lines += ["## On-site / hybrid", ""]
-    add_entries(onsite)
+    add_entries(shown)
 
     lines += ["## Applied", ""]
     if not applied:
@@ -487,14 +477,11 @@ def main():
         row["shown"] = len(mine)
         row["new"] = sum(1 for j in mine if is_new(j))
     fresh = [j for j in untracked if is_new(j)]
-    rest = [j for j in untracked if not is_new(j)]
     handled = sum(1 for j in all_jobs if j["url"] in tracking)
 
     ui.boards_table(t, board_rows)
     ui.summary(t, len(all_jobs), len(untracked), len(fresh), handled, time.monotonic() - started)
-    if fresh:
-        ui.job_list(t, f"New in the last {NEW_DAYS} days", fresh, tracking, args.top)
-    ui.job_list(t, "Top matches", rest, tracking, args.top, first_rank=1,
+    ui.job_list(t, "Top matches", untracked, tracking, args.top,
                 empty="No postings left to review. Run track.py --all to see the rest.")
     if previous:
         ui.removed_list(t, removed_jobs)

@@ -24,8 +24,9 @@ companies.json ──► fetch_jobs.py ──► jobs.json + jobs_report.md
   need it.
 - **Scoring against your profile**: keywords in `profile.json` decide the
   ranking. Title matches weigh more, and you can boost or avoid title words.
-- **Report built to be skimmed**: summary table per company, a "New" section
-  for postings first seen in the last 3 days, remote / on-site tag on each.
+- **Report built to be skimmed**: summary table per company, one ranking with
+  a `NEW` tag on postings first seen in the last 3 days and a remote / on-site
+  tag on each.
 - **Optional LLM scoring**: Claude rates how well each of the best postings
   fits your profile and tells you why. Off by default.
 - **Application tracking**: mark postings `applied` or `seen` from an
@@ -66,8 +67,8 @@ python track.py --all         # same, also listing non-remote postings (r toggle
 Python 3 only, standard library, no `pip install` needed.
 
 The terminal output shows a live progress bar, a table per board (open
-postings, dev roles open to you, new ones, time, failures), the new postings
-of the last 3 days, and the top matches with clickable titles. Colors and
+postings, dev roles open to you, new ones, time, failures) and one ranking
+of the top matches (new ones tagged `NEW`) with clickable titles. Colors and
 links are used only in a real terminal.
 
 ```bash
