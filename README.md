@@ -86,7 +86,8 @@ python track.py list                                 # everything marked so far
 The picker shows one colored row per posting (score, company, title, place,
 `NEW`, remote / hybrid / on-site) and a detail pane with the full location, pay,
 matched keywords or LLM verdict, and your own note. Filters: `h` hide marked,
-`r` non-remote, `n` new only, `c` cycle companies, `/` search, `x` reset.
+`r` non-remote, `n` new only, `c` cycle companies, `/` search, `x` reset,
+`f` run the fetch without leaving the picker.
 Titles are clickable links in terminals that support them.
 
 Each posting has a short id (e.g. `7624e3`) derived from its URL. Marking

@@ -24,6 +24,7 @@ Interactive picker keys:
     c               cycle through companies
     /               search company, title or location (Enter to apply, Esc to cancel)
     x               clear all filters
+    f               fetch new postings now (runs fetch_jobs.py, then comes back)
     q               quit
 """
 import json
@@ -33,6 +34,7 @@ import sys
 import webbrowser
 from datetime import date
 
+import fetch_jobs
 import ui
 from fetch_jobs import (NEW_DAYS, TRACKING_PATH, is_listed, is_new, job_id,
                         load_tracking, workplace, write_report)
@@ -71,8 +73,8 @@ def rebuild_report(tracking):
 
 CYCLE = {None: "seen", "seen": "applied", "applied": None}
 HINTS_WIDE = ("↑↓ move  space cycle  s seen  a applied  u unmark  o open  h hide marked  "
-              "r non-remote  n new  c company  / search  x reset  q quit")
-HINTS_NARROW = "↑↓ move  space cycle  s/a/u mark  o open  h r n c / filters  x reset  q quit"
+              "r non-remote  n new  c company  / search  f fetch  x reset  q quit")
+HINTS_NARROW = "↑↓ move  space cycle  s/a/u mark  o open  h r n c / filters  f fetch  q quit"
 MODE_COLOR = {"remote": "green", "hybrid": "yellow"}
 
 
@@ -219,7 +221,7 @@ def render(t, jobs, tracking, cursor, top_row, height, f, message, typing, every
     lines = [
         title + " " * gap + t.s(position, "gray"),
         t.clip(chips(t, f, len(jobs), marked, len(every_job)), width - 1),
-        t.clip(t.s(HINTS_WIDE if width >= 135 else HINTS_NARROW, "gray"), width - 1),
+        t.clip(t.s(HINTS_WIDE if width >= 141 else HINTS_NARROW, "gray"), width - 1),
         t.rule(),
     ]
     list_height = max(height - 11, 3)
@@ -247,6 +249,27 @@ def render(t, jobs, tracking, cursor, top_row, height, f, message, typing, every
     else:
         lines.append(t.s(message, "green") if message else "")
     return "\n".join(lines)
+
+
+def run_fetch(t):
+    """Leave the picker, run fetch_jobs.py in the normal screen, wait for a key."""
+    sys.stdout.write("\x1b[?25h\x1b[?1049l")  # show cursor, leave alternate screen
+    sys.stdout.flush()
+    saved_argv = sys.argv
+    sys.argv = ["fetch_jobs.py"]
+    try:
+        fetch_jobs.main()
+    except SystemExit as e:
+        if e.code not in (None, 0):
+            print(e.code)
+    except Exception as e:  # keep the picker alive whatever happens in the fetch
+        print(f"{t.s('Fetch failed', 'red', 'bold')}: {type(e).__name__}: {e}")
+    finally:
+        sys.argv = saved_argv
+    print(t.s("Press any key to go back to the picker...", "gray"))
+    read_key()
+    sys.stdout.write("\x1b[?1049h\x1b[?25l")  # alternate screen, hide cursor
+    sys.stdout.flush()
 
 
 def interactive(show_all=False):
@@ -324,6 +347,23 @@ def interactive(show_all=False):
             elif key == "x":
                 f.reset()
                 cursor = top_row = 0
+            elif key == "f":
+                current_url = jobs[cursor]["url"] if jobs else None
+                before = {j["url"] for j in every_job}
+                run_fetch(t)
+                try:
+                    every_job = load_jobs()
+                except SystemExit:
+                    every_job = []
+                companies = sorted({j["company"] for j in every_job})
+                added = [j for j in every_job if j["url"] not in before]
+                gone = len(before) - (len(every_job) - len(added))
+                message = f"Fetched: {len(added)} new postings, {max(gone, 0)} removed, {len(every_job)} in total."
+                if f.company and f.company not in companies:
+                    f.company = None
+                jobs = f.apply(every_job, tracking)
+                if current_url:
+                    cursor = next((i for i, j in enumerate(jobs) if j["url"] == current_url), cursor)
             elif key == "o" and jobs:
                 webbrowser.open(jobs[cursor]["url"])
                 message = "Opened in your browser."
