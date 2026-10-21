@@ -58,6 +58,23 @@ class Term:
             return ""
         return text if len(text) <= width else text[: max(width - 1, 0)] + "…"
 
+    def clip(self, text, width):
+        """Cut a styled string to `width` visible characters, keeping escape codes intact."""
+        out, visible, pos = [], 0, 0
+        while pos < len(text):
+            m = ANSI_RE.match(text, pos)
+            if m:
+                out.append(m.group(0))
+                pos = m.end()
+                continue
+            if visible >= width:
+                out.append("\x1b[0m")
+                break
+            out.append(text[pos])
+            visible += 1
+            pos += 1
+        return "".join(out)
+
     def rule(self, label="", fill="─"):
         if not label:
             return self.s(fill * self.width, "gray")
