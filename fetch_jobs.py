@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 
 import ui
+from corp_ats import FETCHERS as CORP_FETCHERS
 from more_ats import FETCHERS as MORE_FETCHERS
 
 TRACKING_PATH = "applications.json"
@@ -140,6 +141,7 @@ FETCHERS = {
     "greenhouse": fetch_greenhouse,
     "lever": fetch_lever,
     **MORE_FETCHERS,
+    **CORP_FETCHERS,
 }
 
 

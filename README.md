@@ -185,6 +185,27 @@ To find the slug, open the careers page and look at the job board link:
 | `recruitee` | `<slug>.recruitee.com` | `<slug>` |
 | `personio` | `<slug>.jobs.personio.de` | `<slug>` |
 | `teamtailor` | `<slug>.teamtailor.com` or a custom domain such as `careers.acme.com` | `<slug>` or the full domain |
+| `jibe` | iCIMS career site with `/api/jobs` (for example `jobs.axa.com`) | the site host |
+| `phenom` | Phenom People career site (for example `careers.allianz.com/global/en`) | the site host |
+
+Large groups (`jibe`, `phenom`) host thousands of postings, so give a `query`
+(or a list of queries, merged and de-duplicated) to let the site filter for you.
+Their job titles are often in French, so add French words to `title_include`:
+
+```json
+{
+  "name": "AXA", "slug": "jobs.axa.com", "ats": "jibe",
+  "query": ["engineer", "ingénieur", "développeur", "architecte"],
+  "skip_department_filter": true, "include_onsite": true,
+  "title_include": ["engineer", "ingénieur", "développeur", "architecte"],
+  "title_exclude": ["business developer", "intern", "stage"]
+}
+```
+
+For `phenom`, `path` (default `global/en`), `lang` (default `en_global`) and
+`country` (default `global`) match the locale of the career site. The Phenom
+search returns a short teaser, not the full description, so keyword scores are
+lower there.
 
 Workable and SmartRecruiters list titles only, so the tool fetches the
 description of postings whose title passes `title_include` and
