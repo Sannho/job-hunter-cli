@@ -96,7 +96,21 @@ Switzerland, Norway), EMEA or France, or when it is plainly open ("Remote",
 "Anywhere", "Worldwide"). Postings restricted to the US, Asia and so on are
 dropped. "Remote, US" and "Remote-Friendly | San Francisco" do not pass.
 
-Change it in `profile.json`:
+Many companies hire remote per country ("Germany (Remote)" means living in
+Germany). Set `"residence"` in `profile.json` and only postings you could
+actually take are kept: those open to your country, listing it among several,
+or open to a region that covers it (Europe, EU, EMEA), plus plain "Remote":
+
+```json
+{ "residence": "france" }
+```
+
+With `residence` set, "Germany (Remote)" or "London, UK" no longer pass, while
+"Remote, EMEA" and "Remote, France; Remote, Germany" do. For other countries
+the country name itself is used as the match term.
+
+To control the list yourself instead, change `locations` in `profile.json`
+(it takes precedence over `residence`):
 
 ```json
 {

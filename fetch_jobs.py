@@ -171,6 +171,25 @@ DEFAULT_LOCATIONS = [
 # A location that says nothing but this is open to anyone.
 OPEN_LOCATIONS = {"remote", "anywhere", "worldwide", "global", "distributed", "remote (anywhere)"}
 
+# With "residence" set in profile.json, a posting must be open to that country:
+# either it names a region that covers it, or it lists the country itself.
+# "Germany (Remote)" is for people living in Germany, so it no longer passes.
+REGION_LOCATIONS = ["europe", "european union", "eu", "emea"]
+RESIDENCE_PLACES = {
+    "france": ["france", "paris", "lyon", "toulouse", "nantes", "bordeaux", "lille",
+               "marseille", "poitiers"],
+}
+
+
+def residence_terms(residence):
+    """Location terms accepted for someone living in `residence` (a name or a list)."""
+    names = [residence] if isinstance(residence, str) else list(residence)
+    terms = list(REGION_LOCATIONS)
+    for name in names:
+        name = name.lower()
+        terms += RESIDENCE_PLACES.get(name, []) or [name]
+    return terms
+
 
 def is_location_allowed(location, allowed=None, open_remote=True):
     """Whether a posting is open to a candidate in one of the allowed places.
@@ -361,6 +380,8 @@ def main():
             profile = json.load(f)
         keywords = [k.lower() for k in profile["keywords"]]
         allowed_locations = profile.get("locations")
+        if allowed_locations is None and profile.get("residence"):
+            allowed_locations = residence_terms(profile["residence"])
         open_remote = profile.get("open_remote", True)
         summary = (profile.get("summary") or "").strip()
         boost_titles = [t.lower() for t in profile.get("boost_titles", [])]
