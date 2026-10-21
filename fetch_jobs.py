@@ -48,6 +48,7 @@ DEFAULT_TITLE_EXCLUDE = [
 
 TAG_RE = re.compile(r"<[^>]+>")
 # Whole word only: "International" and "Internal" are not internships.
+GLOBAL_RE = re.compile(r"executed globally|remote.{0,20}anywhere in the world|globally remote", re.I)
 INTERN_RE = re.compile(r"\bintern(ship)?s?\b")
 
 
@@ -70,7 +71,8 @@ def fetch_ashby(company):
             "title": j["title"].strip(),
             "department": j.get("department", ""),
             "team": j.get("team", ""),
-            "location": j.get("location", ""),
+            "location": "; ".join(dict.fromkeys(filter(None, [j.get("location", "")] + [
+                x.get("location", "") for x in (j.get("secondaryLocations") or [])]))),
             # Ashby sets isRemote on hybrid postings too; workplaceType tells them apart.
             "remote": (j.get("workplaceType") or "").lower() == "remote"
                       if j.get("workplaceType") else bool(j.get("isRemote")),
@@ -216,7 +218,9 @@ def is_location_allowed(location, allowed=None, open_remote=True):
     allowed. Postings with no location at all are kept: nothing says no.
     """
     loc = (location or "").lower()
-    if any(term in loc for term in LOCATION_EXCLUDE_TERMS):
+    # Only mode words rule a posting out as a whole. Countries are handled by the
+    # allowlist below, so "Remote; India; France" still passes on its France part.
+    if any(term in loc for term in ("in-office", "hybrid")):
         return False
     parts = [p.strip() for p in re.split(r"[;|]", loc) if p.strip()]
     if not parts:
@@ -448,8 +452,12 @@ def main():
             failed.append(company["name"])
             continue
         for j in jobs:
+            # "Remote, can be executed globally" in the text means open to any country.
+            if j.get("remote") and GLOBAL_RE.search(j.get("text") or ""):
+                j["location"] = f"{j.get('location') or ''}; Worldwide".strip("; ")
             # A board that says only "Remote" and gives no workplace type means remote.
-            if not j.get("remote") and not j.get("workplace")                     and (j.get("location") or "").strip().lower() in OPEN_LOCATIONS:
+            parts = [p.strip().lower() for p in re.split(r"[;|]", j.get("location") or "")]
+            if not j.get("remote") and not j.get("workplace") and any(p in OPEN_LOCATIONS for p in parts):
                 j["remote"] = True
         dev_jobs = [j for j in jobs if is_dev_job(j, company, allowed_locations, open_remote)]
         if company.get("include_onsite"):
