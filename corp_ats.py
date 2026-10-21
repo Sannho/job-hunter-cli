@@ -18,6 +18,7 @@ import urllib.request
 
 TAG_RE = re.compile(r"<[^>]+>")
 MAX_POSTINGS = 3000
+HYBRID_RE = re.compile(r"hybrid|hybride|t[ée]l[ée]travail", re.I)
 REMOTE_RE = re.compile(r"\bremote\b|t[ée]l[ée]travail", re.I)
 
 
@@ -67,6 +68,7 @@ def fetch_jibe(company):
                 "team": "",
                 "location": location,
                 "remote": bool(REMOTE_RE.search(f"{title} {location}")),
+                "workplace": "hybrid" if HYBRID_RE.search(_strip(j.get("description", ""))) else "",
                 "contract": " ".join(j.get("tags2") or []),
                 "published": (j.get("posted_date") or j.get("create_date") or "")[:10],
                 "compensation": None,

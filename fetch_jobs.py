@@ -71,7 +71,10 @@ def fetch_ashby(company):
             "department": j.get("department", ""),
             "team": j.get("team", ""),
             "location": j.get("location", ""),
-            "remote": j.get("isRemote", False),
+            # Ashby sets isRemote on hybrid postings too; workplaceType tells them apart.
+            "remote": (j.get("workplaceType") or "").lower() == "remote"
+                      if j.get("workplaceType") else bool(j.get("isRemote")),
+            "workplace": (j.get("workplaceType") or "").lower(),
             "published": j["publishedAt"][:10],
             "compensation": (
                 compensation.get("scrapeableCompensationSalarySummary")
@@ -143,6 +146,16 @@ FETCHERS = {
     **MORE_FETCHERS,
     **CORP_FETCHERS,
 }
+
+
+def workplace(job):
+    """'remote', 'hybrid' or 'on-site', from the board's own field when it has one."""
+    declared = (job.get("workplace") or "").lower()
+    if declared in ("remote", "hybrid"):
+        return declared
+    if job.get("remote"):
+        return "remote"
+    return "hybrid" if "(hybrid)" in (job.get("location") or "").lower() else "on-site"
 
 
 def is_listed(job):
@@ -319,7 +332,7 @@ def write_report(jobs, tracking, path="jobs_report.md", limit=60):
                 if j.get("llm_flags"):
                     lines.append(f"- **Flags:** {'; '.join(j['llm_flags'])}")
             lines.append(f"- **Score:** {j['match_score']}")
-            mode = "remote" if j.get("remote") else "on-site / hybrid"
+            mode = workplace(j)
             lines.append(f"- **Location:** {j['location']} ({mode})")
             lines.append(f"- **Added:** {j['published']}")
             if j.get("compensation"):

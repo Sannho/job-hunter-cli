@@ -154,7 +154,8 @@ def job_list(t, title, jobs, tracking, limit, first_rank=1, empty="Nothing here.
         shown_title = t.cut(j["title"], title_w)
         title_cell = t.link(shown_title, j["url"])
         title_cell += " " * max(title_w - len(shown_title), 0)
-        mode = t.s("remote", "green") if j.get("remote") else t.s("on-site", "magenta")
+        kind = _workplace(j)
+        mode = t.s(kind, {"remote": "green", "hybrid": "yellow"}.get(kind, "magenta"))
         tags = t.pad(t.s("NEW", "yellow", "bold") if _is_new(j) else "", 3) + " " + t.pad(mode, 7)
         print(f"  {t.s(t.pad(str(rank), 2, True), 'gray')} {score} "
               f"{t.s(t.pad(t.cut(j['company'], company_w), company_w), 'bold')} {title_cell} "
@@ -193,6 +194,11 @@ def _loc(job):
     loc = job.get("location") or ""
     # Greenhouse sometimes prefixes the role's own country, keep the first place only.
     return loc.split(";")[0].split("|")[0].strip()
+
+
+def _workplace(job):
+    from fetch_jobs import workplace  # late import: fetch_jobs imports this module
+    return workplace(job)
 
 
 def _is_new(job):
