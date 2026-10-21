@@ -44,6 +44,8 @@ DEFAULT_TITLE_EXCLUDE = [
 ]
 
 TAG_RE = re.compile(r"<[^>]+>")
+# Whole word only: "International" and "Internal" are not internships.
+INTERN_RE = re.compile(r"\bintern(ship)?s?\b")
 
 
 def strip_html(html):
@@ -199,7 +201,7 @@ def is_dev_job(job, company, allowed_locations=None, open_remote=True):
     title_include = company.get("title_include", DEFAULT_TITLE_INCLUDE)
     title_exclude = company.get("title_exclude", DEFAULT_TITLE_EXCLUDE)
 
-    if "intern" in title:
+    if INTERN_RE.search(title):
         return False
     if any(term in (job.get("contract") or "").lower() for term in ("stage", "apprentissage", "alternance")):
         return False
