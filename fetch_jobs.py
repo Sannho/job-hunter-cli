@@ -441,7 +441,7 @@ def main():
             result = future.result()
             results[futures[future]] = result
             progress.update(result[0]["name"], ok=result[2] is None)
-    progress.finish()
+    progress.stage("Filtering and scoring postings...")
 
     all_jobs, failed, board_rows = [], [], []
     for company, jobs, error, secs in results:
@@ -489,12 +489,14 @@ def main():
         tracked = load_tracking()
         candidates = [j for j in all_jobs if is_listed(j) and j["url"] not in tracked]
         from llm_score import apply_llm_scores
+        progress.stage("Rating postings with Claude..." if args.llm else "Reading cached ratings...")
         apply_llm_scores(candidates, all_jobs, summary, top=args.llm_top, call_api=args.llm)
         all_jobs.sort(key=lambda j: (j.get("llm_fit", -1), j["match_score"], j["published"]), reverse=True)
 
     current_urls = {j["url"] for j in all_jobs}
     removed_jobs = [j for url, j in previous.items() if url not in current_urls]
 
+    progress.stage("Writing jobs.json and the report...")
     with open("jobs.json", "w", encoding="utf-8") as f:
         json.dump([{k: v for k, v in j.items() if k != "_text"} for j in all_jobs],
                   f, ensure_ascii=False, indent=2)
@@ -509,6 +511,7 @@ def main():
     fresh = [j for j in untracked if is_new(j)]
     handled = sum(1 for j in all_jobs if j["url"] in tracking)
 
+    progress.finish()
     ui.boards_table(t, board_rows)
     ui.summary(t, len(all_jobs), len(untracked), len(fresh), handled, time.monotonic() - started)
     ui.job_list(t, "Top matches", untracked, tracking, args.top,

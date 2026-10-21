@@ -108,6 +108,12 @@ class Progress:
         sys.stdout.write("\r\x1b[2K" + line)
         sys.stdout.flush()
 
+    def stage(self, text):
+        """Replace the bar with a status line for the steps after the fetch."""
+        if self.t.tty:
+            sys.stdout.write("\r\x1b[2K  " + self.t.s(text, "gray"))
+            sys.stdout.flush()
+
     def finish(self):
         if self.t.tty:
             sys.stdout.write("\r\x1b[2K")
@@ -156,6 +162,8 @@ def job_list(t, title, jobs, tracking, limit, first_rank=1, empty="Nothing here.
         print(t.s(f"  {empty}", "gray"))
         return
     shown = jobs[:limit]
+    if not shown:
+        return
     top = max([j["match_score"] for j in shown] + [1])
     company_w = min(max(len(j["company"]) for j in shown), 14)
     loc_w = min(max(len(_loc(j)) for j in shown), 26 if t.width >= 100 else 14)
