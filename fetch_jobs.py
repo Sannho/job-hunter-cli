@@ -14,11 +14,13 @@ import hashlib
 import json
 import re
 import argparse
+import sys
 import time
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 
+import ui
 from more_ats import FETCHERS as MORE_FETCHERS
 
 TRACKING_PATH = "applications.json"
@@ -365,7 +367,16 @@ def main():
                         help="rate the best postings with Claude (needs ANTHROPIC_API_KEY)")
     parser.add_argument("--llm-top", type=int, default=50, metavar="N",
                         help="how many postings to rate with --llm (default: 50)")
+    parser.add_argument("--top", type=int, default=15, metavar="N",
+                        help="how many postings to list per section in the terminal (default: 15)")
+    parser.add_argument("--no-color", action="store_true",
+                        help="plain output without colors or links")
     args = parser.parse_args()
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+    t = ui.Term(color=False if args.no_color else None)
 
     try:
         with open("companies.json", encoding="utf-8") as f:
@@ -406,20 +417,31 @@ def main():
             return company, None, f"{type(e).__name__}: {e}", time.monotonic() - start
 
     started = time.monotonic()
+    ui.banner(t, f"{len(companies)} boards - {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print()
+    progress = ui.Progress(t, len(companies))
+    results = [None] * len(companies)
     with ThreadPoolExecutor(max_workers=6) as pool:
-        results = list(pool.map(fetch_company, companies))
+        futures = {pool.submit(fetch_company, c): i for i, c in enumerate(companies)}
+        for future in as_completed(futures):
+            result = future.result()
+            results[futures[future]] = result
+            progress.update(result[0]["name"], ok=result[2] is None)
+    progress.finish()
 
-    all_jobs, failed = [], []
+    all_jobs, failed, board_rows = [], [], []
     for company, jobs, error, secs in results:
+        row = {"name": company["name"], "ats": company["ats"], "total": 0, "dev": 0,
+               "shown": 0, "new": 0, "secs": secs, "error": error}
+        board_rows.append(row)
         if error:
             failed.append(company["name"])
-            print(f"{company['name']}: FAILED ({error})")
             continue
         dev_jobs = [j for j in jobs if is_dev_job(j, company, allowed_locations, open_remote)]
         if company.get("include_onsite"):
             for j in dev_jobs:
                 j["include_onsite"] = True
-        print(f"{company['name']}: {len(jobs)} openings, {len(dev_jobs)} dev-related ({secs:.1f}s)")
+        row["total"], row["dev"] = len(jobs), len(dev_jobs)
         all_jobs.extend(score_job(j, keywords, boost_titles, avoid_titles) for j in dev_jobs)
 
     # A board that failed this run keeps its previous postings, so they are
@@ -449,7 +471,6 @@ def main():
         all_jobs.sort(key=lambda j: (j.get("llm_fit", -1), j["match_score"], j["published"]), reverse=True)
 
     current_urls = {j["url"] for j in all_jobs}
-    new_jobs = [j for j in all_jobs if j["url"] not in previous]
     removed_jobs = [j for url, j in previous.items() if url not in current_urls]
 
     with open("jobs.json", "w", encoding="utf-8") as f:
@@ -459,29 +480,23 @@ def main():
     write_report(all_jobs, tracking)
 
     untracked = [j for j in all_jobs if is_listed(j) and j["url"] not in tracking]
-    print(f"\nTotal dev-related openings across all companies: {len(all_jobs)} "
-          f"({sum(1 for j in all_jobs if is_listed(j))} listed, "
-          f"{sum(1 for j in all_jobs if j['url'] in tracking)} already seen/applied)")
-    print("Top listed matches:\n")
-    for j in untracked[:15]:
-        print(f"[{j['match_score']:>2}] {j['id']} {j['company']} - {j['title']} ({j['location']})  {j['url']}")
+    for row in board_rows:
+        mine = [j for j in untracked if j["company"] == row["name"]]
+        row["shown"] = len(mine)
+        row["new"] = sum(1 for j in mine if is_new(j))
+    fresh = [j for j in untracked if is_new(j)]
+    rest = [j for j in untracked if not is_new(j)]
+    handled = sum(1 for j in all_jobs if j["url"] in tracking)
 
+    ui.boards_table(t, board_rows)
+    ui.summary(t, len(all_jobs), len(untracked), len(fresh), handled, time.monotonic() - started)
+    if fresh:
+        ui.job_list(t, f"New in the last {NEW_DAYS} days", fresh, tracking, args.top)
+    ui.job_list(t, "Top matches", rest, tracking, args.top, first_rank=1,
+                empty="No postings left to review. Run track.py --all to see the rest.")
     if previous:
-        print(f"\nNew since last run ({len(new_jobs)}):")
-        for j in new_jobs:
-            print(f"  + {j['id']} {j['company']} - {j['title']} ({j['location']})  {j['url']}")
-
-        print(f"\nNo longer listed since last run ({len(removed_jobs)}):")
-        for j in removed_jobs:
-            print(f"  - {j['company']} - {j['title']} ({j['location']})  {j['url']}")
-    else:
-        print("\nNo previous jobs.json found - nothing to compare against yet.")
-
-    fresh_count = sum(1 for j in all_jobs if is_new(j) and is_listed(j) and j["url"] not in tracking)
-    print(f"\n{fresh_count} new in the last {NEW_DAYS} days.")
-    if failed:
-        print(f"Failed boards (previous postings kept): {', '.join(failed)}")
-    print(f"Saved: jobs.json, jobs_report.md ({time.monotonic() - started:.1f}s)")
+        ui.removed_list(t, removed_jobs)
+    ui.footer(t, failed, "jobs_report.md")
 
 
 if __name__ == "__main__":

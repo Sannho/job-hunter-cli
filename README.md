@@ -65,6 +65,16 @@ python track.py --all         # same, also listing non-remote postings (r toggle
 
 Python 3 only, standard library, no `pip install` needed.
 
+The terminal output shows a live progress bar, a table per board (open
+postings, dev roles open to you, new ones, time, failures), the new postings
+of the last 3 days, and the top matches with clickable titles. Colors and
+links are used only in a real terminal.
+
+```bash
+python fetch_jobs.py --top 30      # list more postings per section
+python fetch_jobs.py --no-color    # plain text (also automatic when piped, or with NO_COLOR)
+```
+
 ```bash
 python track.py applied 7624e3 "sent via referral"   # mark a posting as applied
 python track.py seen 5fb0e6                          # hide a posting from the report
