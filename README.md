@@ -16,7 +16,7 @@ companies.json ──► fetch_jobs.py ──► jobs.json + jobs_report.md
 ## Features
 
 - **Multi-board fetching**: Ashby, Greenhouse, Lever, Workable,
-  SmartRecruiters, Recruitee and Personio. Public APIs only, fetched in
+  SmartRecruiters, Recruitee, Personio and Teamtailor. Public APIs only, fetched in
   parallel. A board that fails never stops the others.
 - **Smart filtering**: dev-only departments and titles, location filter
   (Europe, EMEA, France and "remote anywhere" by default; configurable),
@@ -160,6 +160,7 @@ To find the slug, open the careers page and look at the job board link:
 | `smartrecruiters` | `jobs.smartrecruiters.com/<slug>` | `<slug>` (case matters) |
 | `recruitee` | `<slug>.recruitee.com` | `<slug>` |
 | `personio` | `<slug>.jobs.personio.de` | `<slug>` |
+| `teamtailor` | `<slug>.teamtailor.com` or a custom domain such as `careers.acme.com` | `<slug>` or the full domain |
 
 Workable and SmartRecruiters list titles only, so the tool fetches the
 description of postings whose title passes `title_include` and

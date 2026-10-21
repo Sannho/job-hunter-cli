@@ -1,4 +1,4 @@
-"""Fetchers for Workable, SmartRecruiters, Recruitee and Personio.
+"""Fetchers for Workable, SmartRecruiters, Recruitee, Personio and Teamtailor.
 
 Same contract as the fetchers in fetch_jobs.py: take a company entry from
 companies.json, return a list of job dicts. All four use public endpoints.
@@ -12,6 +12,7 @@ import json
 import re
 import urllib.request
 import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
 from concurrent.futures import ThreadPoolExecutor
 
 TAG_RE = re.compile(r"<[^>]+>")
@@ -179,9 +180,49 @@ def fetch_personio(company):
     return jobs
 
 
+def fetch_teamtailor(company):
+    """Teamtailor career sites publish every opening in a public RSS feed.
+
+    slug is either the Teamtailor subdomain ("acme" for acme.teamtailor.com)
+    or the full domain of a custom career site ("careers.acme.com").
+    """
+    slug = company["slug"]
+    host = slug if "." in slug else f"{slug}.teamtailor.com"
+    ns = {"tt": "https://teamtailor.com/locations"}
+    root = ET.fromstring(_request(f"https://{host}/jobs.rss"))
+    jobs = []
+    for item in root.iter("item"):
+        places = []
+        for loc in item.findall("tt:locations/tt:location", ns):
+            name = ", ".join(x for x in (loc.findtext("tt:city", namespaces=ns),
+                                         loc.findtext("tt:country", namespaces=ns)) if x)
+            if name and name not in places:
+                places.append(name)
+        status = (item.findtext("remoteStatus") or "none").lower()
+        try:
+            published = parsedate_to_datetime(item.findtext("pubDate")).strftime("%Y-%m-%d")
+        except (TypeError, ValueError):
+            published = ""
+        title = (item.findtext("title") or "").strip()
+        jobs.append({
+            "company": company["name"],
+            "title": title,
+            "department": item.findtext("tt:department", namespaces=ns) or "",
+            "team": item.findtext("tt:role", namespaces=ns) or "",
+            "location": "; ".join(places) + (" (hybrid)" if status == "hybrid" else ""),
+            "remote": status == "fully",
+            "published": published,
+            "compensation": None,
+            "text": f"{title} " + _strip(item.findtext("description") or ""),
+            "url": item.findtext("link") or "",
+        })
+    return jobs
+
+
 FETCHERS = {
     "workable": fetch_workable,
     "smartrecruiters": fetch_smartrecruiters,
     "recruitee": fetch_recruitee,
     "personio": fetch_personio,
+    "teamtailor": fetch_teamtailor,
 }
