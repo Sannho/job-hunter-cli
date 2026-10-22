@@ -12,6 +12,7 @@ import argparse
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 
 import ui
@@ -281,6 +282,7 @@ def score_job(job, keywords, boost_titles=(), avoid_titles=()):
 
 
 NEW_DAYS = 3
+MIN_PREVIOUS_FOR_OUTAGE = 3  # a board that goes from this many postings to none counts as failed
 
 
 def is_new(job):
@@ -436,14 +438,20 @@ def main():
             progress.update(result[0]["name"], ok=result[2] is None)
     progress.stage("Filtering and scoring postings...")
 
+    previous_counts = Counter(j["company"] for j in previous.values())
     all_jobs, failed, board_rows = [], [], []
     for company, jobs, error, secs in results:
         row = {"name": company["name"], "ats": company["ats"], "total": 0, "dev": 0,
                "shown": 0, "new": 0, "secs": secs, "error": error}
         board_rows.append(row)
+        # An empty answer from a board that had postings is more likely an outage than a closure.
+        # To drop a board whose postings really are all gone, remove it from companies.json.
+        if not error and not jobs and previous_counts[company["name"]] >= MIN_PREVIOUS_FOR_OUTAGE:
+            error = row["error"] = f"returned no postings, {previous_counts[company['name']]} previous kept"
         if error:
             failed.append(company["name"])
             continue
+        row["partial"] = sum(1 for j in jobs if j.get("no_description"))
         for j in jobs:
             # "Remote, can be executed globally" in the text means open to any country.
             if j.get("remote") and GLOBAL_RE.search(j.get("text") or ""):
@@ -509,7 +517,7 @@ def main():
                 empty="No postings left to review. Run track.py --all to see the rest.")
     if previous:
         ui.removed_list(t, removed_jobs)
-    ui.footer(t, failed, "jobs_report.md")
+    ui.footer(t, failed, "jobs_report.md", [(r["name"], r["partial"]) for r in board_rows if r.get("partial")])
 
 
 if __name__ == "__main__":

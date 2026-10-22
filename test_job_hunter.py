@@ -3,6 +3,9 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
+
+import more_ats
 
 from fetch_jobs import (is_dev_job, is_location_allowed, load_tracking, residence_terms, score_job, workplace,
                         write_json)
@@ -67,6 +70,32 @@ class Files(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 load_tracking(path)
             self.assertEqual(load_tracking(os.path.join(d, "missing.json")), {})
+
+
+class Descriptions(unittest.TestCase):
+    LISTING = {"results": [{"title": "Backend Engineer", "shortcode": "AB1", "location": {}}]}
+
+    def fetch(self, detail_answers):
+        calls = iter(detail_answers)
+
+        def fake(url, data=None):
+            if "/api/v3/" in url:
+                return self.LISTING
+            answer = next(calls)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        with mock.patch.object(more_ats, "get_json", fake):
+            return more_ats.fetch_workable({"name": "Acme", "slug": "acme"})[0]
+
+    def test_one_failed_request_is_retried(self):
+        job = self.fetch([OSError("boom"), {"description": "Python", "requirements": ""}])
+        self.assertFalse(job["no_description"])
+        self.assertIn("Python", job["text"])
+
+    def test_two_failures_flag_the_posting(self):
+        self.assertTrue(self.fetch([OSError("boom"), OSError("boom")])["no_description"])
 
 
 if __name__ == "__main__":

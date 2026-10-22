@@ -202,11 +202,13 @@ def removed_list(t, jobs, limit=8):
         print(t.s(f"  … and {len(jobs) - limit} more", "gray"))
 
 
-def footer(t, failed, report_path):
+def footer(t, failed, report_path, partial=()):
     print()
     if failed:
         print("  " + t.s("!", "red", "bold") + f" Boards that failed (previous postings kept): "
               + t.s(", ".join(failed), "red"))
+    for name, count in partial:
+        print("  " + t.s("!", "yellow", "bold") + f" {name}: {count} postings without description, scored on title only")
     cmd = lambda c: t.s(c, "cyan")
     print(f"  Report: {t.s(report_path, 'bold')}   Mark postings: {cmd('python track.py')}"
           f"   Include non-remote: {cmd('python track.py --all')}")

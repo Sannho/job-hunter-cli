@@ -47,6 +47,16 @@ def _title_plausible(title, company):
     return any(x in t for x in include) and not any(x in t for x in exclude)
 
 
+def _detail(url):
+    """One posting's description, retried once. {} when it still fails (the job is flagged no_description)."""
+    for _ in range(2):
+        try:
+            return get_json(url)
+        except Exception:
+            pass
+    return {}
+
+
 def _details(items, fetch_one):
     """Run fetch_one over items in parallel, keeping order."""
     with ThreadPoolExecutor(max_workers=DETAIL_WORKERS) as pool:
@@ -70,10 +80,7 @@ def fetch_workable(company):
     listing = [j for j in listing if _title_plausible(j["title"], company)]
 
     def one(j):
-        try:
-            detail = get_json(f"https://apply.workable.com/api/v2/accounts/{slug}/jobs/{j['shortcode']}")
-        except Exception:
-            detail = {}
+        detail = _detail(f"https://apply.workable.com/api/v2/accounts/{slug}/jobs/{j['shortcode']}")
         loc = j.get("location") or {}
         location = ", ".join(x for x in (loc.get("city"), loc.get("country")) if x)
         return {
@@ -86,6 +93,7 @@ def fetch_workable(company):
             "workplace": (j.get("workplace") or "").replace("_", "-"),
             "published": (j.get("published") or "")[:10],
             "compensation": None,
+            "no_description": not detail,
             "text": f"{j['title']} " + strip_html(
                 f"{detail.get('description', '')} {detail.get('requirements', '')}"),
             "url": f"https://apply.workable.com/{slug}/j/{j['shortcode']}/",
@@ -108,10 +116,7 @@ def fetch_smartrecruiters(company):
     listing = [j for j in listing if _title_plausible(j["name"], company)]
 
     def one(j):
-        try:
-            detail = get_json(f"{base}/{j['id']}")
-        except Exception:
-            detail = {}
+        detail = _detail(f"{base}/{j['id']}")
         sections = (detail.get("jobAd") or {}).get("sections") or {}
         text = " ".join(strip_html((s or {}).get("text", "")) for s in sections.values())
         loc = j.get("location") or {}
@@ -125,6 +130,7 @@ def fetch_smartrecruiters(company):
             "workplace": "hybrid" if loc.get("hybrid") else ("remote" if loc.get("remote") else ""),
             "published": (j.get("releasedDate") or "")[:10],
             "compensation": None,
+            "no_description": not detail,
             "text": f"{j['name']} {text}",
             "url": detail.get("postingUrl") or f"https://jobs.smartrecruiters.com/{slug}/{j['id']}",
         }

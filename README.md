@@ -219,6 +219,9 @@ Workable and SmartRecruiters list titles only, so the tool fetches the
 description of postings whose title passes `title_include` and
 `title_exclude`. Set those two for large boards to keep the run fast.
 
+A board that suddenly returns no postings (3 or more before) is treated as failed and keeps
+its previous postings. To drop a board whose postings are really all gone, remove it from `companies.json`.
+
 Optional keys: `skip_department_filter`, `location_include`,
 `include_onsite`, `accept_locations` (extra places accepted for this company only,
 for boards that use a country as a hiring-region label). Defaults are in `fetch_jobs.py`.
