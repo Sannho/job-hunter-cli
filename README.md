@@ -16,8 +16,8 @@ companies.json ──► fetch_jobs.py ──► jobs.json + jobs_report.md
 ## Features
 
 - **Multi-board fetching**: Ashby, Greenhouse, Lever, Workable,
-  SmartRecruiters, Recruitee, Personio and Teamtailor. Public APIs only, fetched in
-  parallel. A board that fails never stops the others.
+  SmartRecruiters, Recruitee, Personio, Teamtailor, Jibe and Phenom. Public APIs only, fetched in
+  parallel, with a 30 s timeout per request. A board that fails never stops the others.
 - **Smart filtering**: dev-only departments and titles, location filter
   (Europe, EMEA, France and "remote anywhere" by default; configurable),
   remote-first, with optional on-site/hybrid section for companies that
@@ -226,6 +226,12 @@ for boards that use a country as a hiring-region label). Defaults are in `fetch_
 To support another job board, write a `fetch_<ats>(company)` function that
 returns the same shape as the others (see `more_ats.py`) and register it in
 `FETCHERS`.
+
+## Tests
+
+```bash
+python -m unittest -v   # filters, scoring and the safe file writes
+```
 
 ## Limitations
 

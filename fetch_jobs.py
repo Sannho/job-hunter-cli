@@ -1,28 +1,22 @@
-"""Generic multi-company job search: fetch openings, filter dev roles, score against profile.
+"""Fetch job postings from the public boards in companies.json, keep the dev roles that fit, score them.
 
-Add a company by appending an entry to companies.json (copy companies.example.json first). Currently supports
-Ashby-backed job boards (ats: "ashby") - the same public API Docker uses
-(https://api.ashbyhq.com/posting-api/job-board/<slug>). To find a company's
-slug: open their careers page, look for a script/iframe pointing at
-jobs.ashbyhq.com/<slug>.
-
-Other ATS providers (Greenhouse, Lever, ...) can be added later by writing
-a fetch_<ats>(company) function with the same return shape and registering
-it in FETCHERS below.
+Add a company by appending an entry to companies.json (copy companies.example.json first).
+Each ATS has a fetch_<ats>(company) function returning the same job shape; register new ones
+in FETCHERS below (see more_ats.py and corp_ats.py for the others).
 """
 import hashlib
 import json
+import os
 import re
 import argparse
 import sys
 import time
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 
 import ui
 from corp_ats import FETCHERS as CORP_FETCHERS
-from more_ats import FETCHERS as MORE_FETCHERS
+from more_ats import FETCHERS as MORE_FETCHERS, get_json, strip_html
 
 TRACKING_PATH = "applications.json"
 
@@ -32,12 +26,23 @@ def job_id(url):
     return hashlib.sha1(url.encode("utf-8")).hexdigest()[:6]
 
 
+def write_json(path, data):
+    """Write to a temp file, then swap it in: a crash never leaves a half-written file."""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
 def load_tracking(path=TRACKING_PATH):
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except FileNotFoundError:
         return {}
+    except json.JSONDecodeError as e:
+        # Never treat a damaged file as empty: the next mark would overwrite every earlier one.
+        raise SystemExit(f"{path} is damaged ({e}). Fix or restore it before marking anything.")
 
 DEFAULT_DEV_DEPARTMENTS = {"engineering", "security"}
 DEFAULT_TITLE_INCLUDE = ["engineer", "developer", "architect"]
@@ -46,22 +51,15 @@ DEFAULT_TITLE_EXCLUDE = [
     "implementation engineer", "customer experience engineer", "field cto",
 ]
 
-TAG_RE = re.compile(r"<[^>]+>")
 # Whole word only: "International" and "Internal" are not internships.
 GLOBAL_RE = re.compile(r"executed globally|remote.{0,20}anywhere in the world|globally remote", re.I)
 INTERN_RE = re.compile(r"\bintern(ship)?s?\b")
 
 
-def strip_html(html):
-    return TAG_RE.sub(" ", html or "")
-
-
 def fetch_ashby(company):
     slug = company["slug"]
     url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=true"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req) as resp:
-        data = json.load(resp)
+    data = get_json(url)
 
     jobs = []
     for j in data["jobs"]:
@@ -91,9 +89,7 @@ def fetch_ashby(company):
 def fetch_greenhouse(company):
     slug = company["slug"]
     url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req) as resp:
-        data = json.load(resp)
+    data = get_json(url)
 
     jobs = []
     for j in data["jobs"]:
@@ -118,9 +114,7 @@ def fetch_greenhouse(company):
 def fetch_lever(company):
     slug = company["slug"]
     url = f"https://api.lever.co/v0/postings/{slug}?mode=json"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req) as resp:
-        data = json.load(resp)
+    data = get_json(url)
 
     jobs = []
     for j in data:
@@ -169,8 +163,7 @@ def is_listed(job):
     return bool(job.get("remote") or job.get("include_onsite"))
 
 
-# Countries/terms excluded outright, wherever they appear in a location
-# string (even alongside other, allowed countries).
+# Terms that rule a posting out when they appear in its title.
 LOCATION_EXCLUDE_TERMS = ["india", "canada", "in-office", "seattle", "americas", "hybrid"]
 
 
@@ -497,9 +490,7 @@ def main():
     removed_jobs = [j for url, j in previous.items() if url not in current_urls]
 
     progress.stage("Writing jobs.json and the report...")
-    with open("jobs.json", "w", encoding="utf-8") as f:
-        json.dump([{k: v for k, v in j.items() if k != "_text"} for j in all_jobs],
-                  f, ensure_ascii=False, indent=2)
+    write_json("jobs.json", [{k: v for k, v in j.items() if k != "_text"} for j in all_jobs])
 
     write_report(all_jobs, tracking)
 

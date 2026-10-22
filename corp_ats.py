@@ -16,14 +16,11 @@ import re
 import urllib.parse
 import urllib.request
 
-TAG_RE = re.compile(r"<[^>]+>")
+from more_ats import strip_html
+
 MAX_POSTINGS = 3000
 HYBRID_RE = re.compile(r"hybrid|hybride|t[ée]l[ée]travail", re.I)
 REMOTE_RE = re.compile(r"\bremote\b|t[ée]l[ée]travail", re.I)
-
-
-def _strip(html):
-    return TAG_RE.sub(" ", html or "")
 
 
 def _call(url, payload=None):
@@ -68,11 +65,11 @@ def fetch_jibe(company):
                 "team": "",
                 "location": location,
                 "remote": bool(REMOTE_RE.search(f"{title} {location}")),
-                "workplace": "hybrid" if HYBRID_RE.search(_strip(j.get("description", ""))) else "",
+                "workplace": "hybrid" if HYBRID_RE.search(strip_html(j.get("description", ""))) else "",
                 "contract": " ".join(j.get("tags2") or []),
                 "published": (j.get("posted_date") or j.get("create_date") or "")[:10],
                 "compensation": None,
-                "text": f"{title} {_strip(j.get('description', ''))}",
+                "text": f"{title} {strip_html(j.get('description', ''))}",
                 "url": f"https://{host}/careers-home/jobs/{slug}?lang={j.get('language', 'en-us')}",
             })
         page += 1

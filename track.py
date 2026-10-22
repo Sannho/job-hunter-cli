@@ -37,12 +37,7 @@ from datetime import date
 import fetch_jobs
 import ui
 from fetch_jobs import (NEW_DAYS, TRACKING_PATH, is_listed, is_new, job_id,
-                        load_tracking, workplace, write_report)
-
-
-def save_tracking(tracking):
-    with open(TRACKING_PATH, "w", encoding="utf-8") as f:
-        json.dump(tracking, f, ensure_ascii=False, indent=2)
+                        load_tracking, workplace, write_json, write_report)
 
 
 def load_jobs():
@@ -88,6 +83,7 @@ def read_key():
                     "G": "home", "O": "end"}.get(msvcrt.getwch(), "")
         return "enter" if ch in ("\r", "\n") else ch
 
+    import select
     import termios
     import tty
     fd = sys.stdin.fileno()
@@ -385,7 +381,7 @@ def interactive(show_all=False):
                     }
                     counts[new] += 1
                     message = f"Marked {new}: {j['company']} - {j['title']}"
-                save_tracking(tracking)
+                write_json(TRACKING_PATH, tracking)
                 if f.hide_marked and new is not None:
                     cursor = min(cursor, max(len(f.apply(every_job, tracking)) - 1, 0))
     finally:
@@ -453,7 +449,7 @@ def main():
         color = ("green", "bold") if command == "applied" else ("gray",)
         print(f"{t.s('Marked ' + command, *color)}: {company} - {title}")
 
-    save_tracking(tracking)
+    write_json(TRACKING_PATH, tracking)
     rebuild_report(tracking)
     print(t.s("Updated jobs_report.md.", "gray"))
 

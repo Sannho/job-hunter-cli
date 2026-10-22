@@ -31,11 +31,11 @@ def _request(url, data=None, headers=None):
         return resp.read()
 
 
-def _json(url, data=None):
+def get_json(url, data=None):
     return json.loads(_request(url, data))
 
 
-def _strip(html):
+def strip_html(html):
     return TAG_RE.sub(" ", html or "")
 
 
@@ -61,7 +61,7 @@ def fetch_workable(company):
         payload = {"query": "", "location": [], "department": [], "worktype": [], "remote": []}
         if token:
             payload["token"] = token
-        data = _json(base, payload)
+        data = get_json(base, payload)
         listing += data.get("results", [])
         token = data.get("nextPage")
         if not token:
@@ -71,7 +71,7 @@ def fetch_workable(company):
 
     def one(j):
         try:
-            detail = _json(f"https://apply.workable.com/api/v2/accounts/{slug}/jobs/{j['shortcode']}")
+            detail = get_json(f"https://apply.workable.com/api/v2/accounts/{slug}/jobs/{j['shortcode']}")
         except Exception:
             detail = {}
         loc = j.get("location") or {}
@@ -86,7 +86,7 @@ def fetch_workable(company):
             "workplace": (j.get("workplace") or "").replace("_", "-"),
             "published": (j.get("published") or "")[:10],
             "compensation": None,
-            "text": f"{j['title']} " + _strip(
+            "text": f"{j['title']} " + strip_html(
                 f"{detail.get('description', '')} {detail.get('requirements', '')}"),
             "url": f"https://apply.workable.com/{slug}/j/{j['shortcode']}/",
         }
@@ -99,7 +99,7 @@ def fetch_smartrecruiters(company):
     base = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings"
     listing, offset = [], 0
     while True:
-        data = _json(f"{base}?limit=100&offset={offset}")
+        data = get_json(f"{base}?limit=100&offset={offset}")
         listing += data.get("content", [])
         offset += 100
         if offset >= data.get("totalFound", 0) or not data.get("content"):
@@ -109,11 +109,11 @@ def fetch_smartrecruiters(company):
 
     def one(j):
         try:
-            detail = _json(f"{base}/{j['id']}")
+            detail = get_json(f"{base}/{j['id']}")
         except Exception:
             detail = {}
         sections = (detail.get("jobAd") or {}).get("sections") or {}
-        text = " ".join(_strip((s or {}).get("text", "")) for s in sections.values())
+        text = " ".join(strip_html((s or {}).get("text", "")) for s in sections.values())
         loc = j.get("location") or {}
         return {
             "company": company["name"],
@@ -134,7 +134,7 @@ def fetch_smartrecruiters(company):
 
 def fetch_recruitee(company):
     slug = company["slug"]
-    data = _json(f"https://{slug}.recruitee.com/api/offers/")
+    data = get_json(f"https://{slug}.recruitee.com/api/offers/")
     jobs = []
     for j in data.get("offers", []):
         salary = j.get("salary") or {}
@@ -150,7 +150,7 @@ def fetch_recruitee(company):
             "remote": bool(j.get("remote")),
             "published": (j.get("published_at") or j.get("created_at") or "")[:10],
             "compensation": compensation,
-            "text": f"{j['title']} " + _strip(f"{j.get('description', '')} {j.get('requirements', '')}"),
+            "text": f"{j['title']} " + strip_html(f"{j.get('description', '')} {j.get('requirements', '')}"),
             "url": j.get("careers_url") or f"https://{slug}.recruitee.com/o/{j.get('slug', '')}",
         })
     return jobs
@@ -165,7 +165,7 @@ def fetch_personio(company):
         offices = [p.findtext("office") or ""] + [o.text or "" for o in p.iter("office") if o is not p.find("office")]
         location = "; ".join(dict.fromkeys(o for o in offices if o))
         descriptions = " ".join(
-            _strip((d.findtext("value") or "")) for d in p.iter("jobDescription"))
+            strip_html((d.findtext("value") or "")) for d in p.iter("jobDescription"))
         text = f"{title} {descriptions}"
         jobs.append({
             "company": company["name"],
@@ -215,7 +215,7 @@ def fetch_teamtailor(company):
             "remote": status == "fully",
             "published": published,
             "compensation": None,
-            "text": f"{title} " + _strip(item.findtext("description") or ""),
+            "text": f"{title} " + strip_html(item.findtext("description") or ""),
             "url": item.findtext("link") or "",
         })
     return jobs
